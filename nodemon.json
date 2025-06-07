@@ -1,0 +1,5 @@
+{
+  "ignore": ["savedTokens.json", "*.log", "logs/*", "data/*"],
+  "watch": ["*.js"],
+  "ext": "js"
+}
