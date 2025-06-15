@@ -223,7 +223,283 @@ const sendMessage = async (client, target, message) => {
   }
 };
 
-// Function to send token price updates
+// Function to generate multiplier targets
+const generateMultiplierTargets = () => {
+  const targets = {};
+  // Add multipliers from 2x to 100x
+  for (let i = 2; i <= 100; i++) {
+    targets[`x${i}`] = false;
+  }
+  // Add multipliers from 105x to 500x with 5x increments
+  for (let i = 105; i <= 500; i += 5) {
+    targets[`x${i}`] = false;
+  }
+  return targets;
+};
+
+// Function to format multiplier number
+const formatMultiplier = (multiplier) => {
+  if (multiplier < 1) return "0x";
+
+  // For multipliers less than 10, show 1 decimal place
+  if (multiplier < 10) {
+    return multiplier.toFixed(1) + "x";
+  }
+
+  // For multipliers 10 and above, round to nearest integer
+  return Math.round(multiplier) + "x";
+};
+
+// Function to calculate price multipliers
+const calculatePriceMultipliers = (currentPrice, initialPrice) => {
+  if (!initialPrice || initialPrice <= 0) return null;
+
+  const multiplier = currentPrice / initialPrice;
+  const multipliers = generateMultiplierTargets();
+
+  // Update achieved multipliers
+  for (const [key, _] of Object.entries(multipliers)) {
+    const targetValue = parseInt(key.replace("x", ""));
+    multipliers[key] = multiplier >= targetValue;
+  }
+
+  // Get the highest achieved multiplier
+  let highestMultiplier = 2; // Start from 2x
+  let nextTarget = null;
+
+  // Find highest achieved and next target
+  for (let i = 2; i <= 500; i++) {
+    // Start from 2
+    const key = `x${i}`;
+    if (i <= 100 || i % 5 === 0) {
+      // Only check valid targets (2-100 and multiples of 5)
+      if (multipliers[key]) {
+        highestMultiplier = i;
+      } else if (!nextTarget && i > highestMultiplier) {
+        nextTarget = i;
+      }
+    }
+  }
+
+  return {
+    currentMultiplier: formatMultiplier(multiplier),
+    highestMultiplier: highestMultiplier + "x",
+    nextTarget: nextTarget ? nextTarget + "x" : ">500x",
+    multipliers,
+    rawMultiplier: multiplier, // Store raw value for calculations
+  };
+};
+
+// Function to format multiplier message
+const formatMultiplierMessage = (multipliers) => {
+  if (!multipliers) return "";
+
+  // Get all achieved multipliers
+  const achieved = Object.entries(multipliers.multipliers)
+    .filter(([_, achieved]) => achieved)
+    .map(([key]) => key);
+
+  // Group achieved multipliers for better readability
+  const formatAchieved = (achieved) => {
+    if (achieved.length === 0) return "None yet";
+
+    // Sort numerically
+    achieved.sort(
+      (a, b) => parseInt(a.replace("x", "")) - parseInt(b.replace("x", ""))
+    );
+
+    // Group consecutive numbers
+    const groups = [];
+    let currentGroup = [];
+
+    achieved.forEach((mult, index) => {
+      const value = parseInt(mult.replace("x", ""));
+      if (index === 0) {
+        currentGroup.push(value);
+      } else {
+        const prevValue = parseInt(achieved[index - 1].replace("x", ""));
+        if (
+          value === prevValue + 1 ||
+          (value > 100 && value === prevValue + 5)
+        ) {
+          currentGroup.push(value);
+        } else {
+          if (currentGroup.length > 0) {
+            groups.push(currentGroup);
+          }
+          currentGroup = [value];
+        }
+      }
+    });
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+    }
+
+    // Format groups
+    return groups
+      .map((group) => {
+        if (group.length === 1) return `x${group[0]}`;
+        return `x${group[0]}-x${group[group.length - 1]}`;
+      })
+      .join(", ");
+  };
+
+  // Format initial and current prices for better readability
+  const formatPrice = (price) => {
+    if (!price) return "N/A";
+    if (price < 0.000001) return price.toExponential(2);
+    if (price < 0.01) return price.toFixed(6);
+    if (price < 1) return price.toFixed(4);
+    return price.toFixed(2);
+  };
+
+  return (
+    `\n🚀 Price Multipliers:\n` +
+    `📈 Current: ${multipliers.currentMultiplier}\n` +
+    `🏆 Highest: ${multipliers.highestMultiplier}\n` +
+    `🎯 Next Target: ${multipliers.nextTarget}\n` +
+    `✨ Achieved: ${formatAchieved(achieved)}\n` +
+    `💰 Initial: $${formatPrice(multipliers.rawMultiplier / multipliers.currentMultiplier)}\n` +
+    `💵 Current: $${formatPrice(multipliers.rawMultiplier * (multipliers.rawMultiplier / multipliers.currentMultiplier))}`
+  );
+};
+
+// Modify the token storage add function to include initial price
+const addTokenWithInitialPrice = async (
+  chain,
+  address,
+  sourceGroup,
+  symbol,
+  name,
+  timestamp,
+  initialPrice
+) => {
+  const savedToken = await tokenStorage.addToken(
+    chain,
+    address,
+    sourceGroup,
+    symbol,
+    name,
+    timestamp
+  );
+  if (savedToken) {
+    savedToken.initialPrice = initialPrice;
+  }
+  return savedToken;
+};
+
+// Function to safely format price
+const formatPrice = (price) => {
+  try {
+    // Handle null, undefined, or empty values
+    if (price === null || price === undefined || price === "") {
+      return "N/A";
+    }
+
+    // Convert to number if it's a string
+    const numPrice = typeof price === "string" ? parseFloat(price) : price;
+
+    // Check if it's a valid number
+    if (isNaN(numPrice)) {
+      return "N/A";
+    }
+
+    // Handle zero
+    if (numPrice === 0) {
+      return "$0.00";
+    }
+
+    // Handle very small numbers
+    if (numPrice < 0.000001) {
+      return `$${numPrice.toExponential(2)}`;
+    }
+
+    // Handle small numbers
+    if (numPrice < 0.01) {
+      return `$${numPrice.toFixed(6)}`;
+    }
+
+    // Handle numbers less than 1
+    if (numPrice < 1) {
+      return `$${numPrice.toFixed(4)}`;
+    }
+
+    // Handle regular numbers
+    return `$${numPrice.toFixed(2)}`;
+  } catch (error) {
+    console.error("Error formatting price:", error);
+    return "N/A";
+  }
+};
+
+// Function to send achievement notification
+const sendAchievementNotification = async (
+  client,
+  token,
+  metrics,
+  groupName,
+  multipliers
+) => {
+  try {
+    const totalTokens = Object.keys(tokenStorage.getAllTokens()).length;
+
+    // Get the latest achieved multiplier
+    const achieved = Object.entries(multipliers.multipliers)
+      .filter(([_, achieved]) => achieved)
+      .map(([key]) => parseInt(key.replace("x", "")))
+      .sort((a, b) => b - a)[0]; // Get the highest achieved
+
+    if (achieved) {
+      const achievementMessage =
+        `🎯 TOKEN ACHIEVEMENT ALERT!\n\n` +
+        `🪙 Token: ${metrics.baseToken.symbol || "Unknown"}\n` +
+        `📍 Address: ${token.address}\n` +
+        `⛓️ Chain: ${token.chain.toUpperCase()}\n` +
+        `📈 Achieved: x${achieved}\n` +
+        `💰 Initial Price: ${formatPrice(token.initialPrice)}\n` +
+        `💵 Current Price: ${formatPrice(metrics.priceUsd)}\n` +
+        `📊 24h Change: ${metrics.priceChange24h || 0}%\n` +
+        `💧 Liquidity: ${formatPrice(metrics.liquidityUsd)}\n` +
+        `📈 Volume 24h: ${formatPrice(metrics.volume24h)}\n` +
+        `🏦 DEX: ${metrics.dex || "Unknown"}\n` +
+        `📢 Source Group: ${groupName}\n` +
+        `⏰ Time: ${new Date().toLocaleString()}\n` +
+        `--------------------------------------------------`;
+
+      await sendMessage(client, "hamza_ilyas212", achievementMessage);
+    }
+  } catch (error) {
+    console.error("❌ Error sending achievement notification:", error);
+  }
+};
+
+// Function to send new token notification
+const sendNewTokenNotification = async (client, token, metrics, groupName) => {
+  try {
+    const totalTokens = Object.keys(tokenStorage.getAllTokens()).length;
+
+    const newTokenMessage =
+      `💎 NEW TOKEN ADDED TO TRACKING!\n\n` +
+      `🪙 Token: ${metrics.baseToken.symbol || "Unknown"}\n` +
+      `📍 Address: ${token.address}\n` +
+      `⛓️ Chain: ${token.chain.toUpperCase()}\n` +
+      `💰 Initial Price: ${formatPrice(token.initialPrice)}\n` +
+      `📊 24h Change: ${metrics.priceChange24h || 0}%\n` +
+      `💧 Liquidity: ${formatPrice(metrics.liquidityUsd)}\n` +
+      `📈 Volume 24h: ${formatPrice(metrics.volume24h)}\n` +
+      `🏦 DEX: ${metrics.dex || "Unknown"}\n` +
+      `📢 Source Group: ${groupName}\n` +
+      `⏰ Found At: ${new Date().toLocaleString()}\n\n` +
+      `📊 Total Tokens in Tracking: ${totalTokens}\n` +
+      `--------------------------------------------------`;
+
+    await sendMessage(client, "hamza_ilyas212", newTokenMessage);
+  } catch (error) {
+    console.error("❌ Error sending new token notification:", error);
+  }
+};
+
+// Modify the sendTokenPriceUpdates function to only check for achievements
 const sendTokenPriceUpdates = async (client) => {
   try {
     const tokens = tokenStorage.getAllTokens();
@@ -231,52 +507,53 @@ const sendTokenPriceUpdates = async (client) => {
       return;
     }
 
-    // Send header message
-    const headerMessage =
-      "📊 CURRENT TOKEN PRICES UPDATE\n" +
-      "==================================================\n" +
-      `⏰ Update Time: ${new Date().toLocaleString()}\n\n`;
-    await sendMessage(client, "hamza_ilyas212", headerMessage);
-
-    // Send each token's details one by one
+    // Only check for new achievements, don't send regular updates
     for (const [key, token] of Object.entries(tokens)) {
       try {
-        // Update token price before sending
         const metrics = await tokenStorage.updateTokenPrice(
           token.chain,
           token.address
         );
 
         if (metrics && metrics.status === "success") {
-          const tokenMessage =
-            `🪙 ${metrics.baseToken.symbol} (${token.chain.toUpperCase()})\n` +
-            `📍 Address: ${token.address}\n` +
-            `💰 Price: $${metrics.priceUsd}\n` +
-            `📈 24h Change: ${metrics.priceChange24h}%\n` +
-            `💧 Liquidity: $${metrics.liquidityUsd}\n` +
-            `📊 Volume 24h: $${metrics.volume24h}\n` +
-            `⚡ Recent Change: ${metrics.priceChange1h}%\n` +
-            `🏦 DEX: ${metrics.dex}\n` +
-            `🔄 Last Update: ${new Date().toLocaleTimeString()}\n` +
-            `--------------------------------------------------`;
+          const multipliers = calculatePriceMultipliers(
+            metrics.priceUsd,
+            token.initialPrice
+          );
 
-          await sendMessage(client, "hamza_ilyas212", tokenMessage);
+          // Only send notification if there's a new achievement
+          if (multipliers) {
+            const achieved = Object.entries(multipliers.multipliers)
+              .filter(([_, achieved]) => achieved)
+              .map(([key]) => parseInt(key.replace("x", "")))
+              .sort((a, b) => b - a)[0];
+
+            // Only send if there's a new achievement
+            if (
+              achieved &&
+              (!token.lastAchievement || achieved > token.lastAchievement)
+            ) {
+              await sendAchievementNotification(
+                client,
+                token,
+                metrics,
+                token.sourceGroup,
+                multipliers
+              );
+              // Update the last achievement for this token
+              token.lastAchievement = achieved;
+            }
+          }
         }
       } catch (error) {
         console.error(
-          `❌ Error updating token ${token.address}:`,
+          `❌ Error checking token ${token.address}:`,
           error.message
         );
       }
     }
-
-    // Send footer message
-    const footerMessage =
-      "\n📊 End of Price Update\n" +
-      "==================================================";
-    await sendMessage(client, "hamza_ilyas212", footerMessage);
   } catch (error) {
-    console.error("❌ Error sending token price updates:", error);
+    console.error("❌ Error in price update check:", error);
   }
 };
 
@@ -368,211 +645,222 @@ const startBot = async (retryCount = 0) => {
       clearTimeout(initTimeout);
       console.log("✅ Token storage initialized");
 
-      // Start periodic token price updates
-      console.log("🔄 Starting periodic token price updates...");
+      // Start periodic achievement checks (but don't send regular updates)
+      console.log("🔄 Starting periodic achievement checks...");
       setInterval(
         async () => {
           try {
             await sendTokenPriceUpdates(client);
           } catch (error) {
-            console.error("❌ Error in periodic price update:", error);
+            console.error("❌ Error in achievement check:", error);
           }
         },
         3 * 60 * 1000
-      ); // 3 minutes in milliseconds
+      ); // Still check every 3 minutes, but only for achievements
 
-      // Send initial price update
-      await sendTokenPriceUpdates(client);
+      // Listen to new messages from all groups
+      Object.keys(groups).forEach((groupName) => {
+        const group = groups[groupName];
+
+        client.addEventHandler(
+          async (event) => {
+            try {
+              const message = event.message;
+              const messageText = message.message;
+
+              // Get group name from the stored group info
+              const groupTitle = group.title || groupName;
+
+              console.log(`[${groupTitle}] New message:`, messageText);
+
+              // Detect chain and token addresses
+              const chainId = dexscreener.detectChainFromMessage(messageText);
+              const foundTokens = dexscreener.extractTokenAddresses(
+                messageText,
+                chainId
+              );
+
+              if (foundTokens.length > 0) {
+                console.log(
+                  `\n🔍 Found ${foundTokens.length} token address(es) from ${groupTitle}:`
+                );
+
+                // Send notification about found tokens
+                const tokenNotification = `🔍 Found ${foundTokens.length} new token(s) in ${groupTitle}!\n\n`;
+                await sendMessage(client, "hamza_ilyas212", tokenNotification);
+
+                for (const token of foundTokens) {
+                  console.log(`\n📍 Token on ${token.chain}:`, token.address);
+
+                  try {
+                    const key = `${token.chain}-${token.address.toLowerCase()}`;
+                    const existingToken = tokenStorage.getToken(key);
+
+                    if (existingToken) {
+                      console.log(
+                        `Token already exists, added by: ${existingToken.sourceGroup}`
+                      );
+                      continue;
+                    }
+
+                    // Get initial price before adding token
+                    const initialMetrics = await dexscreener.getTokenMetrics(
+                      token.chain,
+                      token.address
+                    );
+                    const initialPrice = initialMetrics?.priceUsd || null;
+
+                    // Add new token with initial price
+                    const savedToken = await addTokenWithInitialPrice(
+                      token.chain,
+                      token.address,
+                      groupTitle,
+                      null,
+                      null,
+                      message.date,
+                      initialPrice
+                    );
+
+                    if (savedToken) {
+                      const metrics = await tokenStorage.updateTokenPrice(
+                        token.chain,
+                        token.address
+                      );
+
+                      if (metrics && metrics.status === "success") {
+                        // Send new token notification
+                        await sendNewTokenNotification(
+                          client,
+                          savedToken,
+                          metrics,
+                          groupTitle
+                        );
+                      }
+                    }
+                  } catch (error) {
+                    console.error(
+                      `❌ Error processing token ${token.address}:`,
+                      error.message
+                    );
+                  }
+                }
+
+                // Display all tracked tokens after adding new ones
+                try {
+                  await tokenStorage.displayAllPrices();
+                } catch (error) {
+                  console.error("❌ Error displaying prices:", error);
+                }
+              }
+
+              // Handle trading signals with error protection
+              try {
+                if (
+                  messageText.toLowerCase().includes("lets scalping") &&
+                  (messageText.toLowerCase().includes("buy gold") ||
+                    messageText.toLowerCase().includes("sell gold"))
+                ) {
+                  groups[groupName].isWaitingForSignal = true;
+                  const direction = messageText.toLowerCase().includes("buy")
+                    ? "BUY"
+                    : "SELL";
+                  console.log(
+                    `\n🚨 [${groupName}] ALERT: Trigger message detected! Waiting for trade signal...`
+                  );
+                  console.log(`📈 Direction: ${direction}`);
+                  console.log(`⏰ Time: ${new Date().toLocaleTimeString()}`);
+                  console.log(`📝 Message: ${message.message}`);
+
+                  // Play a beep sound
+                  process.stdout.write("\x07");
+
+                  const signalAlert = `🚨 TRADE ALERT!\n\nGroup: ${groupTitle}\nDirection: ${direction}\nTime: ${new Date().toLocaleTimeString()}\n\nTrigger Message:\n${message.message}`;
+                  await sendMessage(client, "hamza_ilyas212", signalAlert);
+                } else if (groups[groupName].isWaitingForSignal) {
+                  const isBuySignal = messageText.toLowerCase().includes("buy");
+                  const isSellSignal = messageText
+                    .toLowerCase()
+                    .includes("sell");
+
+                  if (
+                    (isBuySignal || isSellSignal) &&
+                    containsPriceLevels(messageText)
+                  ) {
+                    console.log(
+                      `\n💹 [${groupName}] TRADE SIGNAL DETAILS RECEIVED!`
+                    );
+                    console.log(`⏰ Time: ${new Date().toLocaleTimeString()}`);
+                    console.log(`📈 Type: ${isBuySignal ? "BUY" : "SELL"}`);
+                    console.log(`📝 Signal Details: ${message.message}`);
+
+                    groups[groupName].currentSignal = message.message;
+
+                    // Extract and display price levels
+                    const lines = message.message.split("\n");
+                    lines.forEach((line) => {
+                      if (line.includes("@"))
+                        console.log(`[${groupName}] 📍 Entry: ${line.trim()}`);
+                      if (line.toLowerCase().includes("sl"))
+                        console.log(
+                          `[${groupName}] 🛑 Stop Loss: ${line.trim()}`
+                        );
+                      if (line.toLowerCase().includes("tp"))
+                        console.log(
+                          `[${groupName}] 🎯 Take Profit: ${line.trim()}`
+                        );
+                    });
+
+                    // Play multiple beeps
+                    for (let i = 0; i < 3; i++) {
+                      process.stdout.write("\x07");
+                      await new Promise((resolve) => setTimeout(resolve, 500));
+                    }
+
+                    const signalDetails = `💹 TRADE SIGNAL DETAILS!\n\nGroup: ${groupTitle}\nType: ${isBuySignal ? "BUY" : "SELL"}\nTime: ${new Date().toLocaleTimeString()}\n\nSignal Details:\n${message.message}`;
+                    await sendMessage(client, "hamza_ilyas212", signalDetails);
+                  } else if (containsManagementInstructions(messageText)) {
+                    console.log(`\n⚠️ [${groupName}] Management Instructions:`);
+                    console.log(`📝 ${message.message}`);
+                    console.log("-------------------");
+                    groups[groupName].isWaitingForSignal = false;
+                  }
+                }
+              } catch (error) {
+                console.error(
+                  `❌ Error processing signal in ${groupName}:`,
+                  error
+                );
+              }
+            } catch (error) {
+              console.error(
+                `❌ Error handling message in ${groupName}:`,
+                error
+              );
+            }
+          },
+          new NewMessage({ chats: [group.entity.id] })
+        );
+      });
+
+      console.log("\n👀 Listening for signals in all configured groups:");
+      Object.keys(groups).forEach((groupName) => {
+        console.log(`📱 ${groupName}`);
+      });
+      console.log("\n✨ Waiting for trigger messages and token addresses...");
+
+      // Handle disconnections
+      client.addEventHandler((update) => {
+        if (update?.className === "UpdateConnectionState") {
+          console.log(`📡 Connection state changed: ${update.state}`);
+          if (update.state === "disconnected") {
+            console.log("🔄 Attempting to reconnect...");
+          }
+        }
+      });
     } catch (error) {
       console.error("❌ Error waiting for token storage:", error);
       // Continue anyway
     }
-
-    // Listen to new messages from all groups
-    Object.keys(groups).forEach((groupName) => {
-      const group = groups[groupName];
-
-      client.addEventHandler(
-        async (event) => {
-          try {
-            const message = event.message;
-            const messageText = message.message;
-
-            // Get group name from the stored group info
-            const groupTitle = group.title || groupName;
-
-            console.log(`[${groupTitle}] New message:`, messageText);
-
-            // Detect chain and token addresses
-            const chainId = dexscreener.detectChainFromMessage(messageText);
-            const foundTokens = dexscreener.extractTokenAddresses(
-              messageText,
-              chainId
-            );
-
-            if (foundTokens.length > 0) {
-              console.log(
-                `\n🔍 Found ${foundTokens.length} token address(es) from ${groupTitle}:`
-              );
-
-              // Send notification about found tokens
-              const tokenNotification = `🔍 Found ${foundTokens.length} new token(s) in ${groupTitle}!\n\n`;
-              await sendMessage(client, "hamza_ilyas212", tokenNotification);
-
-              for (const token of foundTokens) {
-                console.log(`\n📍 Token on ${token.chain}:`, token.address);
-
-                try {
-                  // Check if token already exists
-                  const key = `${token.chain}-${token.address.toLowerCase()}`;
-                  const existingToken = tokenStorage.getToken(key);
-
-                  if (existingToken) {
-                    console.log(
-                      `Token already exists, added by: ${existingToken.sourceGroup}`
-                    );
-                    continue; // Skip if token already exists
-                  }
-
-                  // Add new token to storage with group name and get initial metrics
-                  const savedToken = await tokenStorage.addToken(
-                    token.chain,
-                    token.address,
-                    groupTitle, // Use the stored group title
-                    null, // symbol
-                    null, // name
-                    message.date // Add timestamp of when token was found
-                  );
-
-                  if (savedToken) {
-                    const metrics = await tokenStorage.updateTokenPrice(
-                      token.chain,
-                      token.address
-                    );
-
-                    if (metrics && metrics.status === "success") {
-                      const tokenInfo = `💎 New Token Found!\n\nSymbol: ${metrics.baseToken.symbol}\nChain: ${token.chain.toUpperCase()}\nSource: ${groupTitle}\nPrice: $${metrics.priceUsd}\nDEX: ${metrics.dex}\n\nFound at: ${new Date(message.date * 1000).toLocaleString()}`;
-                      await sendMessage(client, "hamza_ilyas212", tokenInfo);
-                    } else if (metrics) {
-                      console.log(`\n⚠️ Token Status:`, metrics.message);
-                    }
-                  }
-                } catch (error) {
-                  console.error(
-                    `❌ Error processing token ${token.address} from ${groupTitle}:`,
-                    error.message
-                  );
-                  // Continue with next token
-                }
-              }
-
-              // Display all tracked tokens after adding new ones
-              try {
-                await tokenStorage.displayAllPrices();
-              } catch (error) {
-                console.error("❌ Error displaying prices:", error);
-              }
-            }
-
-            // Handle trading signals with error protection
-            try {
-              if (
-                messageText.toLowerCase().includes("lets scalping") &&
-                (messageText.toLowerCase().includes("buy gold") ||
-                  messageText.toLowerCase().includes("sell gold"))
-              ) {
-                groups[groupName].isWaitingForSignal = true;
-                const direction = messageText.toLowerCase().includes("buy")
-                  ? "BUY"
-                  : "SELL";
-                console.log(
-                  `\n🚨 [${groupName}] ALERT: Trigger message detected! Waiting for trade signal...`
-                );
-                console.log(`📈 Direction: ${direction}`);
-                console.log(`⏰ Time: ${new Date().toLocaleTimeString()}`);
-                console.log(`📝 Message: ${message.message}`);
-
-                // Play a beep sound
-                process.stdout.write("\x07");
-
-                const signalAlert = `🚨 TRADE ALERT!\n\nGroup: ${groupTitle}\nDirection: ${direction}\nTime: ${new Date().toLocaleTimeString()}\n\nTrigger Message:\n${message.message}`;
-                await sendMessage(client, "hamza_ilyas212", signalAlert);
-              } else if (groups[groupName].isWaitingForSignal) {
-                const isBuySignal = messageText.toLowerCase().includes("buy");
-                const isSellSignal = messageText.toLowerCase().includes("sell");
-
-                if (
-                  (isBuySignal || isSellSignal) &&
-                  containsPriceLevels(messageText)
-                ) {
-                  console.log(
-                    `\n💹 [${groupName}] TRADE SIGNAL DETAILS RECEIVED!`
-                  );
-                  console.log(`⏰ Time: ${new Date().toLocaleTimeString()}`);
-                  console.log(`📈 Type: ${isBuySignal ? "BUY" : "SELL"}`);
-                  console.log(`📝 Signal Details: ${message.message}`);
-
-                  groups[groupName].currentSignal = message.message;
-
-                  // Extract and display price levels
-                  const lines = message.message.split("\n");
-                  lines.forEach((line) => {
-                    if (line.includes("@"))
-                      console.log(`[${groupName}] 📍 Entry: ${line.trim()}`);
-                    if (line.toLowerCase().includes("sl"))
-                      console.log(
-                        `[${groupName}] 🛑 Stop Loss: ${line.trim()}`
-                      );
-                    if (line.toLowerCase().includes("tp"))
-                      console.log(
-                        `[${groupName}] 🎯 Take Profit: ${line.trim()}`
-                      );
-                  });
-
-                  // Play multiple beeps
-                  for (let i = 0; i < 3; i++) {
-                    process.stdout.write("\x07");
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                  }
-
-                  const signalDetails = `💹 TRADE SIGNAL DETAILS!\n\nGroup: ${groupTitle}\nType: ${isBuySignal ? "BUY" : "SELL"}\nTime: ${new Date().toLocaleTimeString()}\n\nSignal Details:\n${message.message}`;
-                  await sendMessage(client, "hamza_ilyas212", signalDetails);
-                } else if (containsManagementInstructions(messageText)) {
-                  console.log(`\n⚠️ [${groupName}] Management Instructions:`);
-                  console.log(`📝 ${message.message}`);
-                  console.log("-------------------");
-                  groups[groupName].isWaitingForSignal = false;
-                }
-              }
-            } catch (error) {
-              console.error(
-                `❌ Error processing signal in ${groupName}:`,
-                error
-              );
-            }
-          } catch (error) {
-            console.error(`❌ Error handling message in ${groupName}:`, error);
-          }
-        },
-        new NewMessage({ chats: [group.entity.id] })
-      );
-    });
-
-    console.log("\n👀 Listening for signals in all configured groups:");
-    Object.keys(groups).forEach((groupName) => {
-      console.log(`📱 ${groupName}`);
-    });
-    console.log("\n✨ Waiting for trigger messages and token addresses...");
-
-    // Handle disconnections
-    client.addEventHandler((update) => {
-      if (update?.className === "UpdateConnectionState") {
-        console.log(`📡 Connection state changed: ${update.state}`);
-        if (update.state === "disconnected") {
-          console.log("🔄 Attempting to reconnect...");
-        }
-      }
-    });
   } catch (error) {
     console.error("❌ Fatal error:", error);
 

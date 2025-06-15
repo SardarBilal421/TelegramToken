@@ -7,6 +7,7 @@ data/
 !package.json
 !package-lock.json
 !nodemon.json
+src/
 
 # Logs
 logs/
@@ -26,4 +27,7 @@ npm-debug.log*
 
 # OS files
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Session and logs
+session.txt 
