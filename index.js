@@ -7,15 +7,98 @@ const dexscreener = require("./dexscreener");
 const tokenStorage = require("./tokenStorage");
 const fs = require("fs");
 
-// Global error handler
-process.on("uncaughtException", (error) => {
+// Error monitoring and notification system
+let errorNotificationCooldown = 0;
+const ERROR_COOLDOWN_TIME = 5 * 60 * 1000; // 5 minutes between error notifications
+let lastErrorNotification = 0;
+let consecutiveErrors = 0;
+let botStartTime = Date.now();
+
+// Function to send error notification to @Saqlain666
+const sendErrorNotification = async (client, error, context = "") => {
+  try {
+    const now = Date.now();
+
+    // Check if we should send notification (avoid spam)
+    if (now - lastErrorNotification < ERROR_COOLDOWN_TIME) {
+      consecutiveErrors++;
+      return;
+    }
+
+    consecutiveErrors++;
+    lastErrorNotification = now;
+
+    const uptime = Math.floor((now - botStartTime) / 1000 / 60); // minutes
+    const errorMessage =
+      `🚨 BOT ERROR ALERT!\n\n` +
+      `⏰ Time: ${new Date().toLocaleString()}\n` +
+      `🔄 Uptime: ${uptime} minutes\n` +
+      `❌ Error Count: ${consecutiveErrors}\n` +
+      `📍 Context: ${context || "General"}\n\n` +
+      `🔍 Error Details:\n` +
+      `Type: ${error.name || "Unknown"}\n` +
+      `Message: ${error.message || "No message"}\n` +
+      `Stack: ${error.stack ? error.stack.split("\n").slice(0, 3).join("\n") : "No stack trace"}\n\n` +
+      `💻 Server: DigitalOcean VPS\n` +
+      `📊 Status: ${consecutiveErrors > 5 ? "CRITICAL" : "WARNING"}\n` +
+      `--------------------------------------------------`;
+
+    await sendMessage(client, "Saqlain666", errorMessage);
+    console.log("✅ Error notification sent to @Saqlain666");
+  } catch (notifyError) {
+    console.error("❌ Failed to send error notification:", notifyError);
+  }
+};
+
+// Function to send status notification
+const sendStatusNotification = async (client, status, details = "") => {
+  try {
+    const uptime = Math.floor((Date.now() - botStartTime) / 1000 / 60); // minutes
+    const statusMessage =
+      `📊 BOT STATUS UPDATE!\n\n` +
+      `⏰ Time: ${new Date().toLocaleString()}\n` +
+      `🔄 Uptime: ${uptime} minutes\n` +
+      `📈 Status: ${status}\n` +
+      `📝 Details: ${details}\n` +
+      `💻 Server: DigitalOcean VPS\n` +
+      `--------------------------------------------------`;
+
+    await sendMessage(client, "Saqlain666", statusMessage);
+    console.log("✅ Status notification sent to @Saqlain666");
+  } catch (notifyError) {
+    console.error("❌ Failed to send status notification:", notifyError);
+  }
+};
+
+// Enhanced global error handler
+process.on("uncaughtException", async (error) => {
   console.error("❌ Uncaught Exception:", error);
-  // Don't exit the process
+
+  // Try to send notification if client exists
+  if (global.telegramClient) {
+    await sendErrorNotification(
+      global.telegramClient,
+      error,
+      "Uncaught Exception"
+    );
+  }
+
+  // Don't exit the process, let it try to recover
 });
 
-process.on("unhandledRejection", (error) => {
+process.on("unhandledRejection", async (error) => {
   console.error("❌ Unhandled Rejection:", error);
-  // Don't exit the process
+
+  // Try to send notification if client exists
+  if (global.telegramClient) {
+    await sendErrorNotification(
+      global.telegramClient,
+      error,
+      "Unhandled Rejection"
+    );
+  }
+
+  // Don't exit the process, let it try to recover
 });
 
 const apiId = 22610695;
@@ -570,6 +653,16 @@ const startBot = async (retryCount = 0) => {
       client = createClient();
       await client.connect();
       console.log("✅ Connected successfully using saved session!");
+
+      // Make client globally accessible for error notifications
+      global.telegramClient = client;
+
+      // Send startup notification
+      await sendStatusNotification(
+        client,
+        "STARTED",
+        "Bot successfully connected and started"
+      );
     } catch (error) {
       if (
         error.message.includes("AUTH_KEY_DUPLICATED") ||
@@ -584,10 +677,24 @@ const startBot = async (retryCount = 0) => {
             `⚠️ Rate limit hit. Need to wait ${hours} hours and ${minutes} minutes.`
           );
           console.log("💡 Please try again after the waiting period.");
+
+          // Send rate limit notification
+          if (client) {
+            await sendErrorNotification(client, error, "Rate Limit Hit");
+          }
+
           process.exit(1);
         } else {
           console.log("❌ Session is no longer valid. Creating new session...");
           client = await createNewSession();
+          global.telegramClient = client;
+
+          // Send session renewal notification
+          await sendStatusNotification(
+            client,
+            "SESSION RENEWED",
+            "New session created successfully"
+          );
         }
       } else {
         throw error;
@@ -596,6 +703,7 @@ const startBot = async (retryCount = 0) => {
 
     // Object to store group entities and their states
     const groups = {};
+    let connectedGroups = 0;
 
     // Initialize all groups with retry logic
     for (const groupName of groupNames) {
@@ -611,6 +719,7 @@ const startBot = async (retryCount = 0) => {
             currentSignal: "",
           };
           console.log(`✅ Successfully connected to ${groupTitle}`);
+          connectedGroups++;
           break;
         } catch (error) {
           retries--;
@@ -618,6 +727,13 @@ const startBot = async (retryCount = 0) => {
             console.error(
               `❌ Failed to connect to ${groupName} after 3 attempts:`,
               error.message
+            );
+
+            // Send group connection failure notification
+            await sendErrorNotification(
+              client,
+              error,
+              `Failed to connect to group: ${groupName}`
             );
           } else {
             console.log(
@@ -629,13 +745,24 @@ const startBot = async (retryCount = 0) => {
       }
     }
 
+    // Send group connection summary
+    await sendStatusNotification(
+      client,
+      "GROUPS CONNECTED",
+      `Connected to ${connectedGroups}/${groupNames.length} groups successfully`
+    );
+
     // Wait for token storage to initialize with timeout
     console.log("\n⏳ Waiting for token storage to initialize...");
-    let initTimeout = setTimeout(() => {
+    let initTimeout = setTimeout(async () => {
       console.error(
         "⚠️ Token storage initialization timed out, continuing anyway..."
       );
-      // Don't reject, just continue
+      await sendErrorNotification(
+        client,
+        new Error("Token storage initialization timeout"),
+        "Token Storage Timeout"
+      );
     }, 30000);
 
     try {
@@ -653,10 +780,35 @@ const startBot = async (retryCount = 0) => {
             await sendTokenPriceUpdates(client);
           } catch (error) {
             console.error("❌ Error in achievement check:", error);
+            await sendErrorNotification(
+              client,
+              error,
+              "Achievement Check Error"
+            );
           }
         },
         3 * 60 * 1000
       ); // Still check every 3 minutes, but only for achievements
+
+      // Start periodic health check
+      setInterval(
+        async () => {
+          try {
+            const uptime = Math.floor((Date.now() - botStartTime) / 1000 / 60);
+            const totalTokens = Object.keys(tokenStorage.getAllTokens()).length;
+
+            await sendStatusNotification(
+              client,
+              "HEALTH CHECK",
+              `Uptime: ${uptime}min | Tokens: ${totalTokens} | Groups: ${connectedGroups}/${groupNames.length}`
+            );
+          } catch (error) {
+            console.error("❌ Error in health check:", error);
+            await sendErrorNotification(client, error, "Health Check Error");
+          }
+        },
+        60 * 60 * 1000
+      ); // Every hour
 
       // Listen to new messages from all groups
       Object.keys(groups).forEach((groupName) => {
@@ -742,6 +894,11 @@ const startBot = async (retryCount = 0) => {
                       `❌ Error processing token ${token.address}:`,
                       error.message
                     );
+                    await sendErrorNotification(
+                      client,
+                      error,
+                      `Token Processing Error: ${token.address}`
+                    );
                   }
                 }
 
@@ -750,6 +907,11 @@ const startBot = async (retryCount = 0) => {
                   await tokenStorage.displayAllPrices();
                 } catch (error) {
                   console.error("❌ Error displaying prices:", error);
+                  await sendErrorNotification(
+                    client,
+                    error,
+                    "Price Display Error"
+                  );
                 }
               }
 
@@ -830,11 +992,21 @@ const startBot = async (retryCount = 0) => {
                   `❌ Error processing signal in ${groupName}:`,
                   error
                 );
+                await sendErrorNotification(
+                  client,
+                  error,
+                  `Signal Processing Error: ${groupName}`
+                );
               }
             } catch (error) {
               console.error(
                 `❌ Error handling message in ${groupName}:`,
                 error
+              );
+              await sendErrorNotification(
+                client,
+                error,
+                `Message Handling Error: ${groupName}`
               );
             }
           },
@@ -848,31 +1020,78 @@ const startBot = async (retryCount = 0) => {
       });
       console.log("\n✨ Waiting for trigger messages and token addresses...");
 
+      // Send final startup notification
+      await sendStatusNotification(
+        client,
+        "FULLY OPERATIONAL",
+        `Bot is now listening to ${connectedGroups} groups and monitoring tokens`
+      );
+
       // Handle disconnections
-      client.addEventHandler((update) => {
+      client.addEventHandler(async (update) => {
         if (update?.className === "UpdateConnectionState") {
           console.log(`📡 Connection state changed: ${update.state}`);
           if (update.state === "disconnected") {
             console.log("🔄 Attempting to reconnect...");
+            await sendErrorNotification(
+              client,
+              new Error("Telegram connection lost"),
+              "Connection Lost"
+            );
+          } else if (update.state === "connected") {
+            await sendStatusNotification(
+              client,
+              "RECONNECTED",
+              "Telegram connection restored"
+            );
           }
         }
       });
     } catch (error) {
       console.error("❌ Error waiting for token storage:", error);
+      await sendErrorNotification(
+        client,
+        error,
+        "Token Storage Initialization Error"
+      );
       // Continue anyway
     }
   } catch (error) {
     console.error("❌ Fatal error:", error);
 
+    // Send fatal error notification
+    if (global.telegramClient) {
+      await sendErrorNotification(global.telegramClient, error, "Fatal Error");
+    }
+
     // If we've tried less than 3 times, wait and retry
     if (retryCount < 3) {
       console.log(`🔄 Restarting bot (attempt ${retryCount + 1}/3)...`);
+
+      // Send restart notification
+      if (global.telegramClient) {
+        await sendStatusNotification(
+          global.telegramClient,
+          "RESTARTING",
+          `Attempt ${retryCount + 1}/3 after fatal error`
+        );
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 5000));
       return startBot(retryCount + 1);
     } else {
       console.error(
         "❌ Maximum retry attempts reached. Please check the errors above and restart manually."
       );
+
+      // Send final failure notification
+      if (global.telegramClient) {
+        await sendErrorNotification(
+          global.telegramClient,
+          new Error("Maximum retry attempts reached"),
+          "Bot Shutdown"
+        );
+      }
     }
   }
 };
