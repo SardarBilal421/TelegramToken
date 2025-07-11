@@ -549,7 +549,7 @@ const sendAchievementNotification = async (
         `⏰ Time: ${new Date().toLocaleString()}\n` +
         `--------------------------------------------------`;
 
-      await sendMessage(client, "hamza_ilyas212", achievementMessage);
+      await sendMessage(client, "cap_marketing_manager", achievementMessage);
     }
   } catch (error) {
     console.error("❌ Error sending achievement notification:", error);
@@ -576,7 +576,7 @@ const sendNewTokenNotification = async (client, token, metrics, groupName) => {
       `📊 Total Tokens in Tracking: ${totalTokens}\n` +
       `--------------------------------------------------`;
 
-    await sendMessage(client, "hamza_ilyas212", newTokenMessage);
+    await sendMessage(client, "cap_marketing_manager", newTokenMessage);
   } catch (error) {
     console.error("❌ Error sending new token notification:", error);
   }
@@ -839,7 +839,11 @@ const startBot = async (retryCount = 0) => {
 
                 // Send notification about found tokens
                 const tokenNotification = `🔍 Found ${foundTokens.length} new token(s) in ${groupTitle}!\n\n`;
-                await sendMessage(client, "hamza_ilyas212", tokenNotification);
+                await sendMessage(
+                  client,
+                  "cap_marketing_manager",
+                  tokenNotification
+                );
 
                 for (const token of foundTokens) {
                   console.log(`\n📍 Token on ${token.chain}:`, token.address);
@@ -937,7 +941,11 @@ const startBot = async (retryCount = 0) => {
                   process.stdout.write("\x07");
 
                   const signalAlert = `🚨 TRADE ALERT!\n\nGroup: ${groupTitle}\nDirection: ${direction}\nTime: ${new Date().toLocaleTimeString()}\n\nTrigger Message:\n${message.message}`;
-                  await sendMessage(client, "hamza_ilyas212", signalAlert);
+                  await sendMessage(
+                    client,
+                    "cap_marketing_manager",
+                    signalAlert
+                  );
                 } else if (groups[groupName].isWaitingForSignal) {
                   const isBuySignal = messageText.toLowerCase().includes("buy");
                   const isSellSignal = messageText
@@ -979,7 +987,11 @@ const startBot = async (retryCount = 0) => {
                     }
 
                     const signalDetails = `💹 TRADE SIGNAL DETAILS!\n\nGroup: ${groupTitle}\nType: ${isBuySignal ? "BUY" : "SELL"}\nTime: ${new Date().toLocaleTimeString()}\n\nSignal Details:\n${message.message}`;
-                    await sendMessage(client, "hamza_ilyas212", signalDetails);
+                    await sendMessage(
+                      client,
+                      "cap_marketing_manager",
+                      signalDetails
+                    );
                   } else if (containsManagementInstructions(messageText)) {
                     console.log(`\n⚠️ [${groupName}] Management Instructions:`);
                     console.log(`📝 ${message.message}`);
