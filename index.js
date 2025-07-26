@@ -106,7 +106,7 @@ const apiHash = "a8d2da237cb629133af4a026a09355d7";
 
 // Store the session string in a variable so we can modify it if needed
 let currentSession =
-  "1BAAOMTQ5LjE1NC4xNjcuOTEAUAOw5VvcqVsjGfL+cUa1SjquRFOKrbNLuO8g03qeGoIsDJdnXRE0oPdmKi4YWuwW0AedkwzZNKaJmDxUc/IM+FA2Lc+cGFd3nKIppABWzCtk/KBagtMLtIqBXdBIUx/75bnax9Iphrne47PYBz/fdle1BqgnkDqjsiCs6cLfNUVExEr9mrYoUomLlPxTLuUB0jsotFAeKcKhkSdKntG/E65PeBpscl90hNfdNsn7Gol+7eUrsRMIuQ//RXC9sFbM/ZX6aPLEFk+M/0jmN7tLjWEXbr+iC44IXizX/LOP9nFIQ3YUmr9tD9oNcgfXSpZfkWnk6jw2Mejcga/Hw4SLKjo=";
+  "1BAAOMTQ5LjE1NC4xNjcuOTEAUCODOHKjLGD+H5qU7ZRWXthEL8Ndtjx8zkVTAwEp4JdIU7AsicvZYRANcX4nFaZyaOavi5ysKjQQwcMIbgXaev3emgD8KmGXsEnpBcC7LWX+F3mSHR3n6xlmZElAPhQUNyMF3VZzgxXQR9yBBzGN5mF/Bo3Zd/MkA9Rbjy4W8xCj1lLtL4Y5TiVBJCTE3e6YUo8TzjR6skVVaMrihbksIuoXXA2thLrIsiBBQ43+tGcmzSp7g06HPDtD8mgPAMmX3QoOh4f1jret3VhQmnMlS6SqtuW4PbL0UjY4RsRS2lxNafOTQ3qAqz/W8zfveFRQPsS/T535qKJD/FYNVsA3tCk=";
 
 // Function to save session string to a file
 const saveSession = (session) => {
@@ -549,7 +549,7 @@ const sendAchievementNotification = async (
         `⏰ Time: ${new Date().toLocaleString()}\n` +
         `--------------------------------------------------`;
 
-      await sendMessage(client, "cap_marketing_manager", achievementMessage);
+      await sendMessage(client, "jardani142", achievementMessage);
     }
   } catch (error) {
     console.error("❌ Error sending achievement notification:", error);
@@ -576,7 +576,7 @@ const sendNewTokenNotification = async (client, token, metrics, groupName) => {
       `📊 Total Tokens in Tracking: ${totalTokens}\n` +
       `--------------------------------------------------`;
 
-    await sendMessage(client, "cap_marketing_manager", newTokenMessage);
+    await sendMessage(client, "jardani142", newTokenMessage);
   } catch (error) {
     console.error("❌ Error sending new token notification:", error);
   }
@@ -839,11 +839,7 @@ const startBot = async (retryCount = 0) => {
 
                 // Send notification about found tokens
                 const tokenNotification = `🔍 Found ${foundTokens.length} new token(s) in ${groupTitle}!\n\n`;
-                await sendMessage(
-                  client,
-                  "cap_marketing_manager",
-                  tokenNotification
-                );
+                await sendMessage(client, "jardani142", tokenNotification);
 
                 for (const token of foundTokens) {
                   console.log(`\n📍 Token on ${token.chain}:`, token.address);
@@ -941,11 +937,7 @@ const startBot = async (retryCount = 0) => {
                   process.stdout.write("\x07");
 
                   const signalAlert = `🚨 TRADE ALERT!\n\nGroup: ${groupTitle}\nDirection: ${direction}\nTime: ${new Date().toLocaleTimeString()}\n\nTrigger Message:\n${message.message}`;
-                  await sendMessage(
-                    client,
-                    "cap_marketing_manager",
-                    signalAlert
-                  );
+                  await sendMessage(client, "jardani142", signalAlert);
                 } else if (groups[groupName].isWaitingForSignal) {
                   const isBuySignal = messageText.toLowerCase().includes("buy");
                   const isSellSignal = messageText
@@ -987,11 +979,7 @@ const startBot = async (retryCount = 0) => {
                     }
 
                     const signalDetails = `💹 TRADE SIGNAL DETAILS!\n\nGroup: ${groupTitle}\nType: ${isBuySignal ? "BUY" : "SELL"}\nTime: ${new Date().toLocaleTimeString()}\n\nSignal Details:\n${message.message}`;
-                    await sendMessage(
-                      client,
-                      "cap_marketing_manager",
-                      signalDetails
-                    );
+                    await sendMessage(client, "jardani142", signalDetails);
                   } else if (containsManagementInstructions(messageText)) {
                     console.log(`\n⚠️ [${groupName}] Management Instructions:`);
                     console.log(`📝 ${message.message}`);
